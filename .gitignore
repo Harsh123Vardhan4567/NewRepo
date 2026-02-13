@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/JwtTesting.csproj
+/bin/Debug/net8.0/ru/Microsoft.Data.SqlClient.resources.dll
+/JwtTesting.csproj
+/JwtTesting.csproj
+/.vs/JwtTesting/FileContentIndex/8399287a-3d77-4c2b-b548-826023807e56.vsidx
