@@ -1,0 +1,177 @@
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_GetRefreshToken]    Script Date: 13-02-2026 04:17:04 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_GetRefreshToken]
+    @Token NVARCHAR(500)
+AS
+BEGIN
+    SELECT *
+    FROM RefreshTokens
+    WHERE Token = @Token
+      AND IsRevoked = 0
+END
+---------------------------------------------------------------
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_GetUserByEmail]    Script Date: 13-02-2026 04:17:31 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_GetUserByEmail]
+    @Email NVARCHAR(150)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        Id,
+        Username,
+        PasswordHash,
+        IsLoggedIn,
+        IsActive
+    FROM Users
+    WHERE Username = @Email;
+END
+---------------------------------------------------
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_GetUserWithRoles]    Script Date: 13-02-2026 04:17:51 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_GetUserWithRoles]
+    @UserId int 
+AS
+BEGIN
+   
+Select Name from Roles r join UserRoles ur on r.ID=ur.RoleId where ur.UserId=@UserId
+END
+------------------------------------------------------
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_InsertRefreshToken]    Script Date: 13-02-2026 04:18:13 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_InsertRefreshToken]
+    @UserId INT,
+    @Token NVARCHAR(500),
+    @CreatedDate DATETIME
+AS
+BEGIN
+    DECLARE @ExpiryDate DATETIME;
+
+    -- Add 24 hours to CreatedDate
+    SET @ExpiryDate = DATEADD(HOUR, 24, @CreatedDate);
+
+    INSERT INTO RefreshTokens 
+        (UserId, Token, ExpiryDate, IsRevoked, CreatedAt)
+    VALUES 
+        (@UserId, @Token, @ExpiryDate, 0, @CreatedDate);
+END
+----------------------------------------------------------
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_InsertUserWithRoles_FromJson]    Script Date: 13-02-2026 04:18:31 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_InsertUserWithRoles_FromJson]
+(
+    @UserJson NVARCHAR(MAX)
+)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @Username NVARCHAR(100),
+                @PasswordHash NVARCHAR(500),
+                @IsActive BIT;
+
+        -- Extract user data
+        SELECT 
+            @Username = Username,
+            @PasswordHash = PasswordHash,
+            @IsActive = IsActive
+        FROM OPENJSON(@UserJson)
+        WITH
+        (
+            Username NVARCHAR(100),
+            PasswordHash NVARCHAR(500),
+            IsActive BIT
+        );
+
+        -- Insert into Users
+        INSERT INTO Users (Username, PasswordHash, IsLoggedIn, IsActive)
+        VALUES (@Username, @PasswordHash, 0, @IsActive);
+
+        DECLARE @NewUserId INT = SCOPE_IDENTITY();
+
+        -- Insert roles
+        INSERT INTO UserRoles (UserId, RoleId)
+        SELECT @NewUserId, value
+        FROM OPENJSON(@UserJson, '$.Roles');
+
+        COMMIT TRANSACTION;
+        SELECT @NewUserId; 
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END
+---------------------------------------------------
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_RevokeRefreshToken]    Script Date: 13-02-2026 04:18:44 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_RevokeRefreshToken]
+    @Token NVARCHAR(500)
+AS
+BEGIN
+    Delete RefreshTokens
+    WHERE Token = @Token
+END
+-------------------------------------
+USE [JwtDb]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_ValidateRefreshToken]    Script Date: 13-02-2026 04:19:00 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_ValidateRefreshToken]
+    @Token NVARCHAR(500)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM RefreshTokens
+        WHERE Token = @Token
+            AND IsRevoked = 0
+            AND ExpiryDate > GETUTCDATE()
+    )
+    BEGIN
+        SELECT 1 AS IsValid;
+    END
+    ELSE
+    BEGIN
+        SELECT 0 AS InValid;
+    END
+END
